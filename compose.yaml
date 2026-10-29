@@ -1,0 +1,71 @@
+name: enterprise-rag-learning
+services:
+  mysql:
+    image: mysql:8.4.13
+    environment:
+      MYSQL_DATABASE: enterprise_rag
+      MYSQL_USER: rag
+      MYSQL_PASSWORD: ${DB_PASSWORD:?请先运行 scripts/init-env.ps1}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请先运行 scripts/init-env.ps1}
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql -h 127.0.0.1 -u rag -D enterprise_rag -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?请先运行 scripts/init-env.ps1}
+    ports:
+      - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+  app:
+    build: ./backend
+    profiles: [app]
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/enterprise_rag?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&allowPublicKeyRetrieval=true&sslMode=DISABLED
+      DB_PASSWORD: ${DB_PASSWORD}
+      QDRANT_HOST: qdrant
+      QDRANT_GRPC_PORT: 6334
+      QDRANT_API_KEY: ${QDRANT_API_KEY}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:?请在 .env 中配置智普 API Key}
+      ZHIPU_BASE_URL: ${ZHIPU_BASE_URL:-https://open.bigmodel.cn/api/paas}
+      ZHIPU_EMBEDDING_DIMENSIONS: ${ZHIPU_EMBEDDING_DIMENSIONS:-2048}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?请在 .env 中配置 DeepSeek API Key}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_CHAT_MODEL: ${DEEPSEEK_CHAT_MODEL:-deepseek-flash}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-enterprise_knowledge_zhipu_embedding3_2048_v1}
+      BOOTSTRAP_ENABLED: ${BOOTSTRAP_ENABLED:-true}
+      BOOTSTRAP_ALICE_PASSWORD: ${BOOTSTRAP_ALICE_PASSWORD}
+      BOOTSTRAP_BOB_PASSWORD: ${BOOTSTRAP_BOB_PASSWORD}
+      STORAGE_ROOT: /app/data/files
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-8080}:8080"
+    volumes:
+      - app-files:/app/data/files
+    depends_on:
+      mysql:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    profiles: [app]
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8081}:80"
+    depends_on:
+      - app
+
+volumes:
+  mysql-data:
+  qdrant-data:
+  app-files:

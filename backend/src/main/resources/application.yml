@@ -1,0 +1,96 @@
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        http-only: true
+        same-site: lax
+spring:
+  application:
+    name: enterprise-rag-assistant
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/enterprise_rag?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC}
+    username: ${DB_USERNAME:rag}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
+  flyway:
+    enabled: true
+  ai:
+    # 同时引入两个 starter 时必须明确分工，否则智普也可能自动创建 ChatModel。
+    model:
+      chat: deepseek
+      embedding: zhipuai
+      image: none
+    zhipuai:
+      # Spring AI 会追加 /v4/embeddings，这里不能再加 /v4 或 /embeddings。
+      base-url: ${ZHIPU_BASE_URL:https://open.bigmodel.cn/api/paas}
+      api-key: ${ZHIPU_API_KEY:}
+      embedding:
+        # 只向量化原文，不把租户 ID、文件名等检索元数据嵌入文本。
+        metadata-mode: NONE
+        options:
+          model: embedding-3
+          # 模型或维度变化时必须使用新 collection 并重新索引。
+          dimensions: ${ZHIPU_EMBEDDING_DIMENSIONS:2048}
+    deepseek:
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+      api-key: ${DEEPSEEK_API_KEY:}
+      chat:
+        options:
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-flash}
+          temperature: 0.1
+    vectorstore:
+      qdrant:
+        host: ${QDRANT_HOST:localhost}
+        # Spring AI 通过 gRPC 访问，注意不是 HTTP 的 6333 端口。
+        port: ${QDRANT_GRPC_PORT:6334}
+        api-key: ${QDRANT_API_KEY:}
+        use-tls: ${QDRANT_USE_TLS:false}
+        collection-name: ${QDRANT_COLLECTION:enterprise_knowledge_zhipu_embedding3_2048_v1}
+        initialize-schema: true
+    retry:
+      max-attempts: 2
+      backoff:
+        initial-interval: 1s
+        max-interval: 3s
+  http:
+    client:
+      connect-timeout: 10s
+      read-timeout: 120s
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+app:
+  bootstrap:
+    enabled: ${BOOTSTRAP_ENABLED:false}
+    alice-password: ${BOOTSTRAP_ALICE_PASSWORD:}
+    bob-password: ${BOOTSTRAP_BOB_PASSWORD:}
+  worker:
+    # false 时不创建 DocumentWorker；仍可上传并登记 PENDING，但不会自动解析或删除。
+    enabled: ${WORKER_ENABLED:true}
+    # fixedDelay：每轮任务执行结束后再等 3000 毫秒；每轮最多领取一份任务，不是并发间隔。
+    poll-delay-ms: 3000
+  rag:
+    storage-root: ${STORAGE_ROOT:./data/files}
+    # 按 Unicode 码点切块，近似“字数”，不是模型 token 数。
+    chunk-size: 600
+    chunk-overlap: 100
+    top-k: 5
+    similarity-threshold: 0.45
+    # 限制提取结果的字符规模，超过时失败，不把截断后的资料作为完整文档发布。
+    max-extracted-characters: 1000000
+    max-context-characters: 6000
+    # 每批最多包含多少个“文本块”，不是每块多少字；块数过多时分多次顺序写入。
+    # 智普 Embedding-3 的单批上限是 64，RagProperties 也做了 @Max(64) 校验。
+    embedding-batch-size: 16

@@ -1,0 +1,13 @@
+target/
+.env
+data/
+.idea/
+*.iml
+*.log
+.tools/
+node_modules/
+dist/
+playwright-report/
+test-results/
+frontend/.env.local
+*.tsbuildinfo
